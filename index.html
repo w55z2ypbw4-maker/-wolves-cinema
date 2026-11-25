@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>سينما الذئاب</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#262a34;--txt:#e8eaf0;--mut:#8b91a1;--acc:#ff5a4f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif}
+[hidden]{display:none!important}
+button,input{font:inherit}
+input{background:#0f1115;color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%}
+input:focus{outline:2px solid var(--acc);outline-offset:-1px}
+button,.btn{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:11px 16px;cursor:pointer;font-weight:600;display:inline-block;text-align:center}
+button.ghost,.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+#landing{max-width:420px;margin:12vh auto;padding:0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+.card h1{margin:0 0 16px;font-size:22px}
+.stack{display:grid;gap:10px}
+.or{text-align:center;color:var(--mut);font-size:13px}
+.row{display:flex;gap:8px}
+#room{display:grid;grid-template-columns:1fr 340px;gap:14px;padding:14px;height:100vh}
+.main{display:grid;grid-template-rows:auto 1fr auto;gap:12px;min-width:0}
+.top{display:flex;gap:8px;align-items:center}
+.top input{flex:1;direction:ltr;text-align:left}
+.stage{position:relative;background:#000;border-radius:14px;overflow:hidden;min-height:0;display:flex}
+video{width:100%;height:100%;background:#000}
+#tap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000a}
+#tap button{font-size:18px;padding:16px 26px}
+.bar{display:grid;gap:8px}
+#fileBanner{background:#2a2113;border:1px solid #5b4420;border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.side{background:var(--card);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-height:0}
+#users{padding:12px 14px;border-bottom:1px solid var(--line);color:var(--mut);font-size:14px}
+#msgs{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.m{line-height:1.5;word-break:break-word}
+.m b{color:var(--acc)}
+.m.sys{color:var(--mut);font-size:13px;text-align:center}
+#chatForm{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#000d;padding:10px 16px;border-radius:10px;font-size:14px}
+@media(max-width:820px){
+  #room{grid-template-columns:1fr;height:auto;min-height:100vh}
+  .stage{aspect-ratio:16/9}
+  .side{height:55vh}
+}
+</style>
+</head>
+<body>
+
+<div id="landing">
+  <div class="card stack">
+    <h1>🐺 سينما الذئاب</h1>
+    <input id="name" placeholder="اسمك" maxlength="24">
+    <button id="create">إنشاء غرفة جديدة</button>
+    <div class="or">أو</div>
+    <div class="row">
+      <input id="code" placeholder="كود الغرفة" style="direction:ltr;text-align:left">
+      <button id="join" class="ghost">دخول</button>
+    </div>
+  </div>
+</div>
+
+<div id="room" hidden>
+  <div class="main">
+    <div class="top">
+      <input id="invite" readonly>
+      <button id="copy" class="ghost">نسخ الرابط</button>
+    </div>
+    <div class="stage">
+      <video id="video" controls playsinline></video>
+      <div id="tap" hidden><button id="tapBtn">▶ اضغط للتشغيل</button></div>
+    </div>
+    <div class="bar">
+      <div id="fileBanner" hidden>
+        <span>اختار نفس الملف من جهازك: <b id="fileName"></b></span>
+        <label class="btn ghost">اختيار الملف<input id="match" type="file" accept="video/*" hidden></label>
+      </div>
+      <div class="row">
+        <input id="url" placeholder="رابط فيديو مباشر (mp4 / webm / m3u8)" style="direction:ltr;text-align:left">
+        <button id="loadUrl">تشغيل</button>
+        <label class="btn ghost">ملف من جهازي<input id="pick" type="file" accept="video/*" hidden></label>
+      </div>
+    </div>
+  </div>
+  <div class="side">
+    <div id="users"></div>
+    <div id="msgs"></div>
+    <form id="chatForm">
+      <input id="chatIn" placeholder="اكتب رسالة..." maxlength="500" autocomplete="off">
+      <button>إرسال</button>
+    </form>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const v = $('#video');
+  const cid = Math.random().toString(36).slice(2, 10);
+  let room = '', remote = false, rt = null, curSrc = '', curFile = '', hls = null, last = { playing: false, time: 0 };
+
+  const nameIn = $('#name');
+  nameIn.value = localStorage.getItem('wp_name') || '';
+  const myName = () => {
+    const n = nameIn.value.trim() || 'ضيف';
+    localStorage.setItem('wp_name', n);
+    return n;
+  };
+
+  function toast(t) {
+    const el = $('#toast');
+    el.textContent = t;
+    el.hidden = false;
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => (el.hidden = true), 3500);
+  }
+
+  // ---------- الدخول ----------
+  $('#create').onclick = () => enter(Math.random().toString(36).slice(2, 8));
+  $('#join').onclick = () => {
+    const c = $('#code').value.trim().replace(/[^\w-]/g, '');
+    if (c) enter(c);
+  };
+  if (location.hash.length > 1) $('#code').value = location.hash.slice(1).replace(/[^\w-]/g, '');
+
+  function enter(c) {
+    room = c;
+    location.hash = c;
+    $('#landing').hidden = true;
+    $('#room').hidden = false;
+    $('#invite').value = location.origin + location.pathname + '#' + c;
+    connect();
+  }
+
+  $('#copy').onclick = () => {
+    navigator.clipboard.writeText($('#invite').value).then(() => toast('اننسخ الرابط'), () => $('#invite').select());
+  };
+
+  // ---------- الاتصال ----------
+  const post = (o) =>
+    fetch(`/api/event?room=${encodeURIComponent(room)}&cid=${cid}`, { method: 'POST', body: JSON.stringify(o) }).catch(() => {});
+
+  function connect() {
+    const es = new EventSource(`/api/stream?room=${encodeURIComponent(room)}&cid=${cid}&name=${encodeURIComponent(myName())}`);
+    es.addEventListener('init', (e) => {
+      const d = JSON.parse(e.data);
+      $('#msgs').innerHTML = '';
+      d.chat.forEach(addMsg);
+      setUsers(d.users);
+      applyState(d.state);
+    });
+    es.addEventListener('state', (e) => {
+      const d = JSON.parse(e.data);
+      if (d.by !== cid) applyState(d.state);
+    });
+    es.addEventListener('users', (e) => setUsers(JSON.parse(e.data)));
+    es.addEventListener('chat', (e) => addMsg(JSON.parse(e.data)));
+  }
+
+  // ---------- المزامنة ----------
+  function guard() {
+    remote = true;
+    clearTimeout(rt);
+    rt = setTimeout(() => (remote = false), 700);
+  }
+
+  function sync(s) {
+    guard();
+    if (Math.abs(v.currentTime - s.time) > 1.2) v.currentTime = s.time;
+    if (s.playing && v.paused) v.play().catch(() => ($('#tap').hidden = false));
+    if (!s.playing && !v.paused) v.pause();
+  }
+
+  function applyState(s) {
+    last = s;
+    if (s.url && s.url !== curSrc) loadSrc(s.url);
+    if (!s.url && s.file && s.file !== curFile) {
+      curFile = s.file;
+      curSrc = '';
+      $('#fileName').textContent = s.file;
+      $('#fileBanner').hidden = false;
+    }
+    if (v.readyState >= 1) sync(s);
+  }
+  v.addEventListener('loadedmetadata', () => sync(last));
+
+  v.addEventListener('play', () => { if (!remote) post({ type: 'play', time: v.currentTime }); });
+  v.addEventListener('pause', () => { if (!remote) post({ type: 'pause', time: v.currentTime }); });
+  v.addEventListener('seeked', () => { if (!remote) post({ type: 'seek', time: v.currentTime }); });
+  $('#tapBtn').onclick = () => { $('#tap').hidden = true; sync(last); v.play().catch(() => {}); };
+
+  // ---------- تحميل الفيديو ----------
+  function loadHls() {
+    return new Promise((ok, no) => {
+      if (window.Hls) return ok();
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
+      s.onload = ok;
+      s.onerror = no;
+      document.head.append(s);
+    });
+  }
+
+  function loadSrc(url) {
+    curSrc = url;
+    curFile = '';
+    $('#fileBanner').hidden = true;
+    if (hls) { hls.destroy(); hls = null; }
+    if (/\.m3u8(\?|$)/i.test(url) && !v.canPlayType('application/vnd.apple.mpegurl')) {
+      loadHls().then(
+        () => {
+          if (window.Hls && Hls.isSupported()) { hls = new Hls(); hls.loadSource(url); hls.attachMedia(v); }
+          else toast('المتصفح ما يدعم m3u8');
+        },
+        () => toast('ما كدرت أحمّل مشغل m3u8')
+      );
+    } else {
+      v.src = url;
+    }
+  }
+
+  v.addEventListener('error', () => {
+    if (v.src || hls) toast('ما اشتغل الفيديو. تأكد أن الرابط ملف فيديو مباشر (mp4/webm/m3u8)');
+  });
+
+  $('#loadUrl').onclick = () => {
+    const url = $('#url').value.trim();
+    if (!/^https?:\/\//i.test(url)) return toast('الرابط لازم يبدي بـ http أو https');
+    last = { playing: false, time: 0 };
+    loadSrc(url);
+    post({ type: 'load', url });
+  };
+
+  function setLocal(f) {
+    if (hls) { hls.destroy(); hls = null; }
+    if (curSrc.startsWith('blob:')) URL.revokeObjectURL(curSrc);
+    curSrc = URL.createObjectURL(f);
+    curFile = f.name;
+    v.src = curSrc;
+  }
+
+  $('#pick').onchange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    last = { playing: false, time: 0 };
+    setLocal(f);
+    $('#fileBanner').hidden = true;
+    post({ type: 'load', file: f.name });
+    toast('صديقك لازم يختار نفس الملف من جهازه');
+  };
+
+  $('#match').onchange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const want = curFile;
+    setLocal(f);
+    curFile = want;
+    $('#fileBanner').hidden = true;
+  };
+
+  // ---------- الدردشة ----------
+  function addMsg(m) {
+    const d = document.createElement('div');
+    d.className = 'm' + (m.sys ? ' sys' : '');
+    if (m.sys) d.textContent = m.text;
+    else {
+      const b = document.createElement('b');
+      b.textContent = m.name + ': ';
+      d.append(b, document.createTextNode(m.text));
+    }
+    const box = $('#msgs');
+    box.append(d);
+    box.scrollTop = box.scrollHeight;
+  }
+  const setUsers = (u) => ($('#users').textContent = '👥 ' + u.join('، '));
+
+  $('#chatForm').onsubmit = (e) => {
+    e.preventDefault();
+    const t = $('#chatIn').value.trim();
+    if (!t) return;
+    $('#chatIn').value = '';
+    post({ type: 'chat', text: t });
+  };
+})();
+</script>
+</body>
+</html>
